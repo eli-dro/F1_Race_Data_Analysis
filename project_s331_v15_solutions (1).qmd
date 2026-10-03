@@ -1,0 +1,518 @@
+---
+title: "Lab Project"
+author: "Eli Drohan, Tzevon Lovejoy-Hall, Hannah Reyes"
+format: 
+  html:  
+    embed-resources: true
+    code-tools: true
+    toc: true
+editor: source
+execute: 
+  echo: true
+  warning: false
+  message: false
+---
+
+## Load Necessary Packages
+
+```{r}
+#| label: Load Packages
+#| output: false
+library(tidyverse)
+library(kableExtra)
+library(knitr)
+library(janitor)
+library(gt)
+```
+
+## Load Data
+
+This lab uses data collected from F1 races over many years. The data includes information such as drivers, podiums, times, locations, dates, ect. This makes it a fantastic data set to practice on. The datasets also contain keys so that they may be joined, which will be done later. The documentation for this dataset can be found in the same place the csv files can be downloaded, which is linked below.
+
+![Bahrain Grand Prix, 2022](F1cars.jpg){width="650px"}
+
+The three data sets used in this lab are linked below. This lab used `drivers.csv`, `races.csv`, and `results.csv`. Download these datasets and places them in a folder named ***data*** in the same folder as the lab QMD file.
+
+[F1 Datasets](https://www.kaggle.com/datasets/rohanrao/formula-1-world-championship-1950-2020)
+
+Data used in this lab is from the Kaggle dataset Formula 1 World Championship (1950–2024) (Rao, n.d.).
+
+```{r}
+#| label: Load Data
+#Code to load the data
+
+drivers <- read.csv("data/drivers.csv")
+races <- read.csv("data/races.csv")
+results <- read.csv("data/results.csv")
+
+```
+
+## Problems
+
+**Question 1: We need to compile and clean up these data sets into an easy form for analysis. Follow these steps to be aptly prepared for our insights:**
+
+Name the new data set `racing_clean` 
+
+1.  First, some renaming:
+    -   In `races` data set, rename the `time` data variable (the *time of day* the race started) to "`tod_start`" so that it doesn't conflict with `time` data variable in ***results*** (overall *time to complete* race for that given driver).
+
+    -   In the `drivers` data set, rename the `number` data variable (the *career* number for the driver) to "`career_number`" so that it doesn't conflict with the number data variable in ***results*** (the number the driver actually carried in *that specific race).*
+
+Complete the rest in a *single* pipeline:
+
+2.  Join all three data sets, keeping the rows present in the ***results*** data set. 
+3.  Change all column titles to `snake_case` format.
+    -   Hint: use a function from the **janitor** package
+4.  Change the any entries with `\N` (their convention for NA) to an actual `NA` value.
+5.  Combine the `forename` and `surname` variables and name it `full_name`.
+6.  Change `date` and `dob` into a *date* type objects, and then combine the `date` data variable with the `tod_start` data variable. Name it `race_datetime.`
+7.  Change `nationality` into a *factor* type object.
+8.  Remove the following columns: `date`, `tod_start`, `url_y`, `url_x`, `status_id`, `code`, `forename`, `surname`, `position_text`, `position_order`, `driver_ref`, and `rank`.
+9.  Change `number`:`career_number` to numeric.
+
+*Ignore the warning given after step 6.*
+
+**Do not print the whole data set, just show the code!**
+
+```{r}
+#| label: Question 1 Code
+# Write your code here
+
+```
+
+```{r solution}
+drivers <- drivers |>
+  rename("career_number" = number)
+races <- races |>
+  rename("tod_start" = time)
+
+racing_clean <- results |>
+  left_join(drivers, by = "driverId") |>
+  left_join(races, by = "raceId") |>
+  clean_names() |>
+  mutate(across(.cols = where(is.character), 
+        .fns = ~ na_if(.x, "\\N"))) |>
+  mutate(full_name = paste(forename, surname)) |>
+  mutate(dob = ymd(dob),
+         race_datetime = ymd_hms(paste(date, tod_start, sep = " "), quiet = TRUE)) |>
+  mutate(nationality = as_factor(nationality)) |>
+  select(-c(date, tod_start, url_y, url_x, status_id, code, forename, surname, position_text, position_order, driver_ref, rank)) |>
+  mutate(across(.cols = c("number":"career_number", -career_number, -fastest_lap_time),
+                .fns = ~ suppressWarnings(as.numeric(.x))))
+
+#racing_clean
+```
+
+**1b: What does one individual result_id represent?**
+
+Solution: a unique identifier for a specific combination of a driver (driver_id) in a specific race (race_id)
+
+------------------------------------------------------------------------
+
+**Question 2: Write a function that takes a drivers name as an argument. The function should output a nicely formatted table showing their fastest time for each circuit (sorted from fastest circuit to slowest). Make error handling for if the driver does not exist or if the argument is not the correct data type.**
+
+Keep in mind, you will need to turn the time from `fast_lap_time` into a double containing the number of seconds. Also, you will need to use `slice_min` to keep the original format of the lap time.
+
+```{r}
+#| label: Question 2 Code
+# Write your code here
+
+```
+
+```{r}
+#| label: Question 2 Solution
+# Question 4 Solution
+driver_fastest_times <- function(driver_name) {
+  
+  stopifnot("Argument is not a character vector" = is.character(driver_name))
+  stopifnot("Name not found" = driver_name %in% racing_clean$full_name)
+  
+  racing_clean |> 
+    filter(full_name == driver_name) |> 
+    mutate(fastest_lap_time_sec = as.numeric(ms(fastest_lap_time))) |> 
+    group_by(name) |> 
+    slice_min(fastest_lap_time_sec) |> 
+    select(name, fastest_lap_time) |> 
+    arrange(fastest_lap_time) |> 
+    kbl(caption = driver_name, col.names = c("Race", "Fastest Lap Time")) |> 
+    kable_classic() |> 
+    row_spec(0, bold = TRUE, italic = TRUE)
+    
+  
+}
+
+## Test
+driver_fastest_times("Lewis Hamilton")
+#driver_fastest_times("Barack Obama")
+#driver_fastest_times(24)
+```
+
+------------------------------------------------------------------------
+
+**Question 3: Which Formula 1 drivers have won the most races? Use the `racing_clean` data set to answer the following:**
+
+Complete the following in a *single* pipeline:
+
+1.  Filter the data to only include drivers who finished in 1st place
+
+    -   Use the `position` variable
+
+2.  Group the data by `full_name`
+
+3.  Calculate the total number of wins for each driver
+
+4.  Keep only the top 10 winning drivers
+
+5.  Create a bar chart showing:
+
+    -   driver names on the x-axis
+    -   total wins on the y-axis
+    -   bars ordered from most wins to fewest wins
+
+6.  Flip the coordinates so the driver names are easier to read
+
+7.  Add:
+
+    -   an informative title
+    -   axis labels
+    -   a minimal theme
+
+```{r}
+#| label: Question 3 Code
+# Write your code here
+
+```
+
+```{r}
+#| label: Question 3 Solution
+# Question 3 Solution
+racing_clean |>
+  filter(position == 1) |>
+  group_by(full_name) |>
+  summarize(total_wins = n()) |>
+  slice_max(total_wins, n = 10) |>
+  ggplot(aes(x = reorder(full_name, total_wins),
+             y = total_wins)) +
+  geom_col(fill = "darkred") +
+  coord_flip() +
+  labs(
+    title = "Top 10 Formula 1 Drivers by Career Wins",
+    x = "Driver",
+    y = "Total Wins"
+  ) +
+  theme_minimal()
+```
+
+------------------------------------------------------------------------
+
+**Question 4: Does the variable `fastest_lap` approximately follow a normal distribution?**
+
+You will need to...
+
+1.  First, find the mean and standard deviation of `fastest_lap`
+
+2.  Next, take a sample with sample size equal to the number of non NA entries in `fastest_lap` from a normal distribution with mean and standard deviation as found above.
+
+3.  Plot this sample, along with `fastest_lap`, and compare the two.
+
+Also, `fastest_lap` will need to be changed to numeric. This is already done for you, and it is saved as `fastest_lap_df`
+
+```{r}
+#| label: Question 4 Code
+# Write your code here
+fastest_lap_df <- racing_clean |> 
+  mutate(fastest_lap = as.numeric(fastest_lap)) |> 
+  select(fastest_lap)
+
+
+```
+
+```{r}
+#| label: Question 4 Test
+
+fastest_lap_df <- racing_clean |> 
+  mutate(fastest_lap = as.numeric(fastest_lap)) |> 
+  select(fastest_lap)
+
+# Find mean and SD
+fl_mean <- fastest_lap_df |> 
+  pull(fastest_lap) |> 
+  mean(na.rm = TRUE)
+fl_sd <- fastest_lap_df |> 
+  pull(fastest_lap) |> 
+  sd(na.rm = TRUE)
+
+#Find number of non NA rows (sample size)
+num_obs <- fastest_lap_df |> 
+  filter(!is.na(fastest_lap)) |> 
+  nrow()
+
+# Take the sample
+theor_sample <- rnorm(n = num_obs, mean = fl_mean, sd = fl_sd) |> 
+  enframe()
+  
+# Plot both distributions and compare
+ggplot() + 
+  geom_histogram(data = fastest_lap_df, 
+                 mapping = aes(x = fastest_lap,
+                               colour = "Observed"),
+                 fill = "blue",
+                 alpha = 0.5) + 
+  geom_histogram(data = theor_sample, 
+                 mapping = aes(x = value,
+                               colour = "Normal"),
+                 fill = "red",
+                 alpha = 0.5) + 
+  scale_color_manual(
+    values = c("Observed" = "blue",
+               "Normal" = "red")) +
+  labs(x = "Value", 
+       y = "", subtitle = "", 
+       title = "Observed vs. Normal Sample",
+       color = "Distribution") + 
+  theme_minimal()
+
+```
+
+------------------------------------------------------------------------
+
+**Question 5: Write a function that takes a data frame and a numeric variable that takes a random sample size n and returns the mean of that sample. Then, use this function to take 1000 samples from `fastest_lap_speed` of size 40, storing the mean for each. Plot these means. What distribution is this approximating?**
+
+To do this...
+
+1.  Write a function that will return the mean of a random sample of size n from A Variable.
+
+2.  Use a map function to iterate this 1000 times with `fastest_lap_speed`, using the function written earlier.
+
+3.  Graph these results.
+
+```{r}
+#| label: Question 5 Code
+# Write your code here
+
+```
+
+```{r}
+#| label: Question 5 Solution
+random_sample_mean <- function(data, var, n = 30) {
+  data |> 
+    mutate({{var}} := as.numeric({{var}})) |> 
+    slice_sample(n = n) |> 
+    pull({{var}}) |> 
+    mean(na.rm = TRUE)
+}
+
+
+map_dbl(.x = 1:1000,
+        .f = ~ random_sample_mean(racing_clean, fastest_lap_speed, n = 40)) |> 
+  enframe() |> 
+  ggplot(mapping = aes(x = value)) +
+  geom_histogram() +
+  labs(x = "Sample Means", y = "", title = "Distribution of Sample Means")
+
+
+```
+
+Solution: This approximates a normal distribution.
+
+------------------------------------------------------------------------
+
+**Question 6: Which decades produced the fastest average lap speeds?**
+
+Formula 1 cars have changed significantly over time due to improvements in technology and engineering. Use the `racing_clean` data set to investigate how fastest lap speeds have changed across decades.
+
+Complete the following tasks:
+
+1.  Create a new data set called `decade_speeds`.
+
+2.  Create a new variable called `decade`
+
+    -   Example: 1994 becomes `"1990s"`
+
+3.  Remove missing values from `fastest_lap_speed`.
+
+4.  Group the data by `decade` and calculate:
+
+    -   average fastest lap speed
+    -   median fastest lap speed
+    -   standard deviation of fastest lap speed
+    -   number of recorded fastest lap speeds
+
+5.  Keep only decades with at least 100 recorded fastest lap speeds.
+
+6.  Create a nicely formatted table of `decade_speeds`.
+
+7.  Write a brief summary describing the results in the table.
+
+```{r}
+#| label: Question 6 Code
+# Write your code here
+```
+
+```{r}
+#| label: Question 6 Solution
+
+decade_speeds <- racing_clean |>
+  mutate(
+    decade = paste0(floor(year / 10) * 10, "s")
+  ) |>
+  filter(!is.na(fastest_lap_speed)) |>
+  group_by(decade) |>
+  summarize(
+    avg_speed = mean(fastest_lap_speed),
+    median_speed = median(fastest_lap_speed),
+    sd_speed = sd(fastest_lap_speed),
+    n_recorded = n()
+  ) |>
+  filter(n_recorded >= 100)
+
+decade_speeds |>
+  gt() |>
+  tab_header(
+    title = "Fastest Lap Speed Summary by Decade"
+  ) |>
+  cols_label(
+    decade = "Decade",
+    avg_speed = "Average Speed",
+    median_speed = "Median Speed",
+    sd_speed = "Standard Deviation",
+    n_recorded = "Recorded Laps"
+  ) |>
+  tab_spanner(
+    label = "mph",
+    columns = c(avg_speed, median_speed, sd_speed)
+  ) |>
+  fmt_number(
+    columns = c(avg_speed, median_speed, sd_speed),
+    decimals = 2
+  )
+```
+
+Solution: The average fastest lap speed generally increased from the 2010s to the 2020s, suggesting that Formula 1 cars have become faster over time. The variation between decades may also reflect changes in race regulations, track layouts, and available race data.
+
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+**Question 7: Does driver age appear to be related to race performance?**
+
+Using the `racing_clean` data set, investigate the relationship between a driver's age and their finishing position.
+
+Complete the following tasks:
+
+1.  Create a new data set called `age_finish`.
+
+2.  Create a new variable called `driver_age` representing the driver's age (in years) at the time of the race.
+
+3.  Keep only:
+
+    -   `driver_age`
+    -   `position`
+
+4.  Remove missing values.
+
+5.  Create a scatterplot showing:
+
+    -   `driver_age` on the x-axis
+    -   `position` on the y-axis
+
+6.  Add a regression line.
+
+7.  Fit a simple linear regression model predicting `position` using `driver_age`.
+
+8.  Display the model summary.
+
+9.  Use your model to predict the finishing position of a driver who is 30 years old.
+
+10. Answer the following:
+
+    -   What does the slope tell us?
+    -   What proportion of variation in finishing position is explained by age?
+    -   Does age appear to be a useful predictor of finishing position?
+
+```{r}
+#| label: Question 7 Code
+# Write your code here
+
+```
+
+```{r}
+#| label: Question 7 Solution
+
+age_finish <- racing_clean |>
+  mutate(
+    driver_age = as.numeric(
+      difftime(race_datetime, dob, units = "days")
+    ) / 365.25
+  ) |>
+  select(driver_age, position) |>
+  filter(
+    !is.na(driver_age),
+    !is.na(position)
+  )
+
+# Scatterplot with regression line
+age_finish |>
+  ggplot(aes(x = driver_age,
+             y = position)) +
+  geom_point(alpha = 0.3, color = "darkblue") +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              color = "black") +
+  labs(
+    title = "Driver Age vs Finishing Position",
+    x = "Driver Age (Years)",
+    y = "Finishing Position"
+  ) +
+  theme_minimal()
+
+# Fit regression model
+age_model <- lm(
+  position ~ driver_age,
+  data = age_finish
+)
+
+# Display regression summary
+summary(age_model)
+
+# Create organized regression table
+model_results <- tibble(
+  Statistic = c(
+    "Intercept",
+    "Slope",
+    "R-Squared",
+    "Adjusted R-Squared"
+  ),
+  Value = c(
+    coef(age_model)[1],
+    coef(age_model)[2],
+    summary(age_model)$r.squared,
+    summary(age_model)$adj.r.squared
+  )
+)
+
+model_results |>
+  gt() |>
+  tab_header(
+    title = "Regression Model Summary"
+  ) |>
+  fmt_number(
+    columns = Value,
+    decimals = 4
+  )
+
+# Predict finishing position for a 30 year old driver
+predict(
+  age_model,
+  newdata = tibble(driver_age = 30)
+)
+
+```
+
+Solution: 
+
+The slope estimates that for every 1 yr increase in age their finishing position decreases by 0.10258 on average.
+
+The R² value indicates the that approximately 0.01 of variability in finishing position can be explained by age, given our model. 
+
+The evidence is clear. Although the p-value shows a significant negative relationship between driver age and their finishing position, it doesn't explain almost any change. This means that although the age of a driver does have statistical significance, many factors besides age (e.g. car engineering, starting position, fastest lap, etc.) are better predictors of race outcomes. Age is not likely to be a particularly strong predictor on its own. 
